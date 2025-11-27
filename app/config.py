@@ -26,10 +26,12 @@ class Settings:
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_aud: str = "authenticated"
+    supabase_anon_key: str | None = None
+    supabase_service_role_key: str | None = None
     admin_bypass_token: str | None = None
     upstash_redis_url: str | None = None
     upstash_redis_token: str | None = None
-    daily_usage_limit: int = 100
+    daily_usage_limit: int = 3
 
     @staticmethod
     def from_env() -> Settings:
@@ -49,10 +51,12 @@ class Settings:
             supabase_url=os.getenv("SUPABASE_URL"),
             supabase_jwks_url=os.getenv("SUPABASE_JWKS_URL"),
             supabase_aud=os.getenv("SUPABASE_JWT_AUD", "authenticated"),
+            supabase_anon_key=os.getenv("SUPABASE_ANON_KEY"),
+            supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
             admin_bypass_token=os.getenv("ADMIN_BYPASS_TOKEN"),
             upstash_redis_url=os.getenv("UPSTASH_REDIS_URL"),
             upstash_redis_token=os.getenv("UPSTASH_REDIS_TOKEN"),
-            daily_usage_limit=int(os.getenv("DAILY_USAGE_LIMIT", "100")),
+            daily_usage_limit=int(os.getenv("DAILY_USAGE_LIMIT", "3")),
         )
 
 

@@ -6,12 +6,10 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
+from app.api.deps import AuthenticatedUser, enforce_daily_limit, get_current_user, get_settings
+from app.api.schemas import AskRequest
 from app.logger import get_logger
-from app.auth import AuthenticatedUser, get_current_user
-from app.rate_limit import enforce_daily_limit
-from app.config import get_settings
 from app.services import stream_graph
 from app.services.langgraph import DEFAULT_MAX_TURNS
 
@@ -24,15 +22,6 @@ def _preview(text: str, limit: int = 80) -> str:
 
     compact = " ".join(text.split())
     return compact[:limit] + ("…" if len(compact) > limit else "")
-
-
-class AskRequest(BaseModel):
-    """질문을 포함하는 요청 스키마."""
-
-    question: str
-    turn: int | None = None
-    max_turns: int | None = None
-    history: list[dict[str, str]] | None = None
 
 
 @router.get("/health")
