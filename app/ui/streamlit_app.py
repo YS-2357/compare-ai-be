@@ -143,11 +143,24 @@ def main() -> None:
                 st.markdown(f"**Q{len(st.session_state['chat_log'])-idx}:** {item.get('question')}")
                 answers = item.get("answers") or {}
                 sources = item.get("sources") or {}
-                for model, answer in answers.items():
-                    src = sources.get(model)
-                    st.write(f"[{model}] {answer}")
-                    if src:
-                        st.caption(f"출처: {src}")
+                events = item.get("events") or []
+                if events:
+                    st.caption("응답 스트림 (수신 순서)")
+                    for ev in events:
+                        model = ev.get("model") or "unknown"
+                        ans = ev.get("answer")
+                        src = ev.get("source")
+                        status = ev.get("status") or {}
+                        st.write(f"[{model}] {ans}")
+                        st.caption(f"status: {status}")
+                        if src:
+                            st.caption(f"출처: {src}")
+                else:
+                    for model, answer in answers.items():
+                        src = sources.get(model)
+                        st.write(f"[{model}] {answer}")
+                        if src:
+                            st.caption(f"출처: {src}")
                 st.divider()
     else:
         chat_area.info("아직 대화가 없습니다. 질문을 입력해보세요.")
@@ -186,6 +199,7 @@ def main() -> None:
                 )
                 _sync_usage_from_headers(resp)
                 stream_lines = []
+                events = []
                 for line in resp.iter_lines():
                     if not line:
                         continue
@@ -199,6 +213,14 @@ def main() -> None:
                         if model:
                             answers_acc[model] = parsed.get("answer")
                             sources_acc[model] = parsed.get("source")
+                            events.append(
+                                {
+                                    "model": model,
+                                    "answer": parsed.get("answer"),
+                                    "source": parsed.get("source"),
+                                    "status": parsed.get("status"),
+                                }
+                            )
                 # 스트림 완료 후 summary 저장
                 summary = None
                 for item in stream_lines[::-1]:
@@ -210,7 +232,7 @@ def main() -> None:
                     answers_acc = result.get("answers") or answers_acc
                     sources_acc = result.get("sources") or sources_acc
                 st.session_state["chat_log"].append(
-                    {"question": question, "answers": answers_acc, "sources": sources_acc}
+                    {"question": question, "answers": answers_acc, "sources": sources_acc, "events": events}
                 )
 
                 # 응답 완료 후 남은 횟수 갱신
