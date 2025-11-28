@@ -155,8 +155,8 @@ Content-Type: application/json
 ```
 
 **사용량 헤더(있을 경우)**
-- `X-Usage-Limit`: 일일 한도
-- `X-Usage-Remaining`: 이번 호출 기준 남은 횟수 (Upstash 오류 시 미포함)
+- `X-Usage-Limit`: 일일 한도 (`DAILY_USAGE_LIMIT`, 기본 3)
+- `X-Usage-Remaining`: 이번 호출 기준 남은 횟수 (Upstash 오류 시 미포함, 장애 시에도 로컬 캐시로 3회 제한 유지)
 
 ## 📝 변경 이력
 
@@ -184,6 +184,9 @@ Content-Type: application/json
 ### 2. 패키지 호환성
 - `numpy` 버전 충돌 가능 → 가상환경 사용 필수
 - `langchain-upstage`의 의존성 버전 주의
+
+### 3. 사용량 표시 버그 (UI)
+- Streamlit UI에서 재로그인 직후 남은 횟수가 항상 3으로 보일 수 있습니다(실제 서버 제한은 Upstash/캐시에 따라 정상 적용). `/api/ask` 호출 후 내려오는 헤더/summary 값으로 즉시 동기화하는 패치를 예정 중입니다.
 
 ## 📄 라이선스
 

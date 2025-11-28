@@ -7,5 +7,4 @@
 
 사용 시 주의:
 - `Authorization: Bearer <token>` 헤더 필요(관리자 우회 시 `x-admin-bypass`).
-- `/api/ask` 응답 헤더에 `X-Usage-Limit`, `X-Usage-Remaining` 포함(Upstash 정상 시).
-
+- `/api/ask` 응답 헤더에 `X-Usage-Limit`, `X-Usage-Remaining` 포함(Upstash 정상 시, 기본 한도 3회).
