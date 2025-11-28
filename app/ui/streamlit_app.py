@@ -19,7 +19,12 @@ st.set_page_config(page_title="Compare-AI", page_icon="🤖", layout="wide")
 
 
 def _load_base_url() -> str:
-    saved = st.session_state.get("fastapi_base_url") or DEFAULT_FASTAPI_BASE or st.secrets.get("FASTAPI_URL", "")
+    saved = (
+        st.session_state.get("fastapi_base_url")
+        or DEFAULT_FASTAPI_BASE
+        or os.getenv("FASTAPI_URL", "")
+        or st.secrets.get("FASTAPI_URL", "")
+    )
     if saved.endswith("/api/ask"):
         return saved.rsplit("/api/ask", 1)[0]
     return saved
