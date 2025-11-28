@@ -201,22 +201,22 @@ def _extract_source(extras: dict[str, Any] | None) -> str | None:
 
 
 async def _invoke_parsed(llm: Any, prompt_input: str, label: str) -> tuple[str, str | None, dict[str, Any]]:
-    """LCEL 체인을 시도하고, 실패 시 원본 응답으로 폴백한다."""
+    """LLM을 한 번 호출한 뒤 파서를 적용하고, 실패하면 원문을 그대로 사용한다."""
 
     parser = PydanticOutputParser(pydantic_object=Answer)
     prompt = _build_prompt()
-    chain = prompt | llm | parser
+    chain = prompt | llm
+    response = await chain.ainvoke({"question": prompt_input})
+    status = build_status_from_response(response)
+    raw_text = response.content if hasattr(response, "content") else str(response)
     try:
-        parsed: Answer = await chain.ainvoke({"question": prompt_input})
+        parsed: Answer = parser.parse(raw_text)
         content = parsed.content
         source = parsed.source or _extract_source(getattr(parsed, "model_extra", None))
-        status = {"status": 200, "detail": "success"}
-        return content, source, status
     except Exception:
-        response = await _ainvoke(llm, prompt_input)
-        content = response.content if hasattr(response, "content") else str(response)
-        status = build_status_from_response(response)
-        return content, None, status
+        content = raw_text
+        source = _extract_source(getattr(response, "response_metadata", None))
+    return content, source, status
 
 
 def build_status_from_response(
