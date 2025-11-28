@@ -53,7 +53,7 @@ def _sync_usage_from_headers(resp: requests.Response) -> None:
 
 def main() -> None:
     st.title("Compare-AI")
-    st.caption("멀티 LLM 비교 · Supabase 로그인 + FastAPI 스트림")
+    st.caption("여러 LLM 중 내 질문에 가장 잘 답하는 모델을 찾아보세요.")
 
     with st.sidebar:
         st.header("Backend 설정")
@@ -165,7 +165,15 @@ def main() -> None:
                         parsed = json.loads(line.decode("utf-8"))
                     except Exception:
                         parsed = line
-                    st.write(parsed)
+                    if isinstance(parsed, dict):
+                        src = parsed.get("source")
+                        if src:
+                            st.write(parsed)
+                            st.caption(f"출처: {src}")
+                        else:
+                            st.write(parsed)
+                    else:
+                        st.write(parsed)
 
                 # 응답 완료 후 남은 횟수 갱신
                 if resp.status_code == 429:
