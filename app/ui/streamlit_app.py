@@ -15,6 +15,8 @@ load_dotenv()
 FASTAPI_URL_FILE = Path(__file__).resolve().parents[2] / ".fastapi_url"
 DEFAULT_FASTAPI_BASE = FASTAPI_URL_FILE.read_text().strip() if FASTAPI_URL_FILE.exists() else ""
 
+st.set_page_config(page_title="Compare-AI", page_icon="🤖", layout="wide")
+
 
 def _load_base_url() -> str:
     saved = st.session_state.get("fastapi_base_url") or DEFAULT_FASTAPI_BASE or st.secrets.get("FASTAPI_URL", "")
@@ -50,8 +52,8 @@ def _sync_usage_from_headers(resp: requests.Response) -> None:
 
 
 def main() -> None:
-    st.title("API LangGraph Test")
-    st.caption("멀티 LLM 비교 (FastAPI + LangGraph)")
+    st.title("Compare-AI")
+    st.caption("멀티 LLM 비교 · Supabase 로그인 + FastAPI 스트림")
 
     with st.sidebar:
         st.header("Backend 설정")
