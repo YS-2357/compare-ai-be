@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import requests
 import streamlit as st
@@ -61,6 +62,210 @@ def _sync_usage_from_headers(resp: requests.Response) -> None:
         st.session_state["usage_remaining"] = int(remaining)
 
 
+def _build_history_payload(chat_log: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """기존 대화 로그를 LangGraph history 페이로드로 변환한다."""
+
+    history_payload: list[dict[str, str]] = []
+    for entry in chat_log or []:
+        q = entry.get("question")
+        if q:
+            history_payload.append({"role": "user", "content": q})
+        model_answers: dict[str, str] = {}
+        for model, ans in (entry.get("answers") or {}).items():
+            if ans:
+                model_answers[model] = ans
+        if not model_answers:
+            for ev in entry.get("events") or []:
+                model = ev.get("model")
+                ans = ev.get("answer")
+                if model and ans and model not in model_answers:
+                    model_answers[model] = ans
+        for model, ans in model_answers.items():
+            history_payload.append({"role": "assistant", "model": model, "content": ans})
+    return history_payload
+
+
+def _parse_stream_events(resp: requests.Response) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str | None]]:
+    """스트림 응답을 파싱해 이벤트/최종 답변을 수집한다."""
+
+    answers_acc: dict[str, str] = {}
+    sources_acc: dict[str, str | None] = {}
+    events: list[dict[str, Any]] = []
+    summary_result: dict[str, Any] | None = None
+
+    for line in resp.iter_lines():
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line.decode("utf-8"))
+        except Exception:
+            parsed = line
+        if isinstance(parsed, dict):
+            if parsed.get("type") == "partial":
+                model = parsed.get("model")
+                if model:
+                    answers_acc[model] = parsed.get("answer")
+                    sources_acc[model] = parsed.get("source")
+                    events.append(
+                        {
+                            "model": model,
+                            "answer": parsed.get("answer"),
+                            "source": parsed.get("source"),
+                            "status": parsed.get("status"),
+                            "elapsed_ms": parsed.get("elapsed_ms"),
+                        }
+                    )
+            elif parsed.get("type") == "summary":
+                summary_result = parsed.get("result") or summary_result
+    if summary_result:
+        answers_acc = summary_result.get("answers") or answers_acc
+        sources_acc = summary_result.get("sources") or sources_acc
+    return events, answers_acc, sources_acc
+
+
+def _update_usage_after_response(resp: requests.Response, *, use_admin_bypass: bool) -> None:
+    """응답 이후 사용량 카운터를 갱신한다."""
+
+    if resp.status_code == 429:
+        st.session_state["usage_remaining"] = 0
+    elif resp.ok and not use_admin_bypass:
+        if "X-Usage-Remaining" not in resp.headers:
+            new_value = max(0, st.session_state.get("usage_remaining", _usage_limit_int()) - 1)
+            st.session_state["usage_remaining"] = new_value
+
+
+def _append_chat_log_entry(
+    question: str,
+    answers: dict[str, str],
+    sources: dict[str, str | None],
+    events: list[dict[str, Any]],
+) -> None:
+    """대화 로그에 새 엔트리를 추가한다."""
+
+    st.session_state["chat_log"].append(
+        {
+            "question": question,
+            "answers": answers,
+            "sources": sources,
+            "events": events,
+        }
+    )
+
+
+def _render_auth_section(base_url: str) -> None:
+    """로그인/회원가입 UI를 렌더링한다."""
+
+    st.header("로그인 또는 회원가입")
+    email = st.text_input("이메일")
+    password = st.text_input("비밀번호", type="password")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("회원가입"):
+            if not base_url:
+                st.error("FastAPI Base URL을 입력하세요.")
+            elif not email or not password:
+                st.warning("이메일/비밀번호를 입력하세요.")
+            else:
+                try:
+                    resp = requests.post(
+                        f"{base_url}/auth/register",
+                        json={"email": email, "password": password},
+                        timeout=15,
+                    )
+                    st.write(f"회원가입 상태: {resp.status_code}")
+                    st.json(resp.json())
+                except Exception as exc:
+                    st.error(f"회원가입 실패: {exc}")
+    with col2:
+        if st.button("로그인"):
+            if not base_url:
+                st.error("FastAPI Base URL을 입력하세요.")
+            elif not email or not password:
+                st.warning("이메일/비밀번호를 입력하세요.")
+            else:
+                try:
+                    resp = requests.post(
+                        f"{base_url}/auth/login",
+                        json={"email": email, "password": password},
+                        timeout=15,
+                    )
+                    data = resp.json()
+                    st.write(f"로그인 상태: {resp.status_code}")
+                    if resp.ok and data.get("access_token"):
+                        token = f"{data.get('token_type', 'bearer')} {data['access_token']}"
+                        st.session_state["auth_token"] = token
+                        st.session_state["auth_user"] = data.get("user")
+                        st.success("로그인 성공: 토큰 저장 완료")
+                        st.rerun()
+                    st.json(data)
+                except Exception as exc:
+                    st.error(f"로그인 실패: {exc}")
+    st.stop()
+
+
+def _render_chat_history(chat_log: list[dict[str, Any]]) -> None:
+    """기존 대화 로그를 표시한다."""
+
+    chat_area = st.container()
+    if chat_log:
+        for idx, item in enumerate(reversed(chat_log)):
+            with chat_area:
+                st.markdown(f"**Q{len(chat_log)-idx}:** {item.get('question')}")
+                answers = item.get("answers") or {}
+                sources = item.get("sources") or {}
+                events = item.get("events") or []
+                if events:
+                    st.caption("응답 스트림 (수신 순서)")
+                    for ev in events:
+                        model = ev.get("model") or "unknown"
+                        ans = ev.get("answer")
+                        src = ev.get("source")
+                        status = ev.get("status") or {}
+                        elapsed = ev.get("elapsed_ms")
+                        st.write(f"[{model}] {ans}")
+                        status_line = f"status: {status}"
+                        if elapsed is not None:
+                            status_line += f", elapsed_ms: {elapsed}"
+                        st.caption(status_line)
+                        if src:
+                            st.caption(f"출처: {src}")
+                else:
+                    for model, answer in answers.items():
+                        src = sources.get(model)
+                        st.write(f"[{model}] {answer}")
+                        if src:
+                            st.caption(f"출처: {src}")
+            st.divider()
+    else:
+        chat_area.info("아직 대화가 없습니다. 질문을 입력해보세요.")
+
+
+def _handle_logout() -> None:
+    """로그아웃 처리."""
+
+    st.session_state.pop("auth_token", None)
+    st.session_state.pop("auth_user", None)
+    st.session_state.pop("usage_remaining", None)
+    st.session_state.pop("chat_log", None)
+    st.session_state.pop("use_admin_bypass", None)
+    st.session_state.pop("admin_token", None)
+    st.rerun()
+
+
+def _send_question(
+    question: str, ask_url: str, headers: dict[str, str], turn_value: int, history_payload: list[dict[str, str]]
+) -> None:
+    """질문을 전송하고 응답을 세션에 반영한다."""
+
+    payload = {"question": question, "turn": turn_value, "history": history_payload}
+    resp = requests.post(ask_url, headers=headers, json=payload, stream=True, timeout=60)
+    _sync_usage_from_headers(resp)
+    events, answers_acc, sources_acc = _parse_stream_events(resp)
+    _append_chat_log_entry(question, answers_acc, sources_acc, events)
+    _update_usage_after_response(resp, use_admin_bypass=st.session_state.get("use_admin_bypass"))
+    st.rerun()
+
+
 def main() -> None:
     st.title("Compare-AI")
     st.caption("여러 LLM 중 내 질문에 가장 잘 답하는 모델을 찾아보세요.")
@@ -82,52 +287,7 @@ def main() -> None:
 
     # 인증/회원가입 뷰
     if not st.session_state.get("auth_token"):
-        st.header("로그인 또는 회원가입")
-        email = st.text_input("이메일")
-        password = st.text_input("비밀번호", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("회원가입"):
-                if not base_url:
-                    st.error("FastAPI Base URL을 입력하세요.")
-                elif not email or not password:
-                    st.warning("이메일/비밀번호를 입력하세요.")
-                else:
-                    try:
-                        resp = requests.post(
-                            f"{base_url}/auth/register",
-                            json={"email": email, "password": password},
-                            timeout=15,
-                        )
-                        st.write(f"회원가입 상태: {resp.status_code}")
-                        st.json(resp.json())
-                    except Exception as exc:
-                        st.error(f"회원가입 실패: {exc}")
-        with col2:
-            if st.button("로그인"):
-                if not base_url:
-                    st.error("FastAPI Base URL을 입력하세요.")
-                elif not email or not password:
-                    st.warning("이메일/비밀번호를 입력하세요.")
-                else:
-                    try:
-                        resp = requests.post(
-                            f"{base_url}/auth/login",
-                            json={"email": email, "password": password},
-                            timeout=15,
-                        )
-                        data = resp.json()
-                        st.write(f"로그인 상태: {resp.status_code}")
-                        if resp.ok and data.get("access_token"):
-                            token = f"{data.get('token_type', 'bearer')} {data['access_token']}"
-                            st.session_state["auth_token"] = token
-                            st.session_state["auth_user"] = data.get("user")
-                            st.success("로그인 성공: 토큰 저장 완료")
-                            st.rerun()
-                        st.json(data)
-                    except Exception as exc:
-                        st.error(f"로그인 실패: {exc}")
-        st.stop()
+        _render_auth_section(base_url)
 
     # 로그인 후 질문 뷰
     st.header("대화")
@@ -143,42 +303,9 @@ def main() -> None:
     remaining = st.session_state.get("usage_remaining", _usage_limit_int())
     st.info(f"남은 일일 사용 횟수: **{remaining}회** (관리자 우회 시 제한 없음)")
     if st.button("로그아웃"):
-        st.session_state.pop("auth_token", None)
-        st.session_state.pop("auth_user", None)
-        st.session_state.pop("usage_remaining", None)
-        st.session_state.pop("chat_log", None)
-        st.session_state.pop("use_admin_bypass", None)
-        st.session_state.pop("admin_token", None)
-        st.rerun()
+        _handle_logout()
 
-    chat_area = st.container()
-    if st.session_state["chat_log"]:
-        for idx, item in enumerate(reversed(st.session_state["chat_log"])):
-            with chat_area:
-                st.markdown(f"**Q{len(st.session_state['chat_log'])-idx}:** {item.get('question')}")
-                answers = item.get("answers") or {}
-                sources = item.get("sources") or {}
-                events = item.get("events") or []
-                if events:
-                    st.caption("응답 스트림 (수신 순서)")
-                    for ev in events:
-                        model = ev.get("model") or "unknown"
-                        ans = ev.get("answer")
-                        src = ev.get("source")
-                        status = ev.get("status") or {}
-                        st.write(f"[{model}] {ans}")
-                        st.caption(f"status: {status}")
-                        if src:
-                            st.caption(f"출처: {src}")
-                else:
-                    for model, answer in answers.items():
-                        src = sources.get(model)
-                        st.write(f"[{model}] {answer}")
-                        if src:
-                            st.caption(f"출처: {src}")
-                st.divider()
-    else:
-        chat_area.info("아직 대화가 없습니다. 질문을 입력해보세요.")
+    _render_chat_history(st.session_state["chat_log"])
 
     question = st.text_area("질문을 입력하세요", height=120, placeholder="여기에 질문을 입력하세요")
     send_col, reset_col = st.columns([3, 1])
@@ -199,6 +326,8 @@ def main() -> None:
         headers = {"Content-Type": "application/json"}
         if token := st.session_state.get("auth_token"):
             headers["Authorization"] = token
+        history_payload = _build_history_payload(st.session_state.get("chat_log", []))
+        turn_value = len(st.session_state.get("chat_log", [])) + 1
 
         # 관리자 우회 토큰 검증: 환경/secret에 설정된 값과 일치할 때만 헤더 추가
         admin_env = _get_admin_env_token()
@@ -215,62 +344,7 @@ def main() -> None:
             headers["x-admin-bypass"] = admin_input
         with st.spinner("질문 보내는 중..."):
             try:
-                answers_acc: dict[str, str] = {}
-                sources_acc: dict[str, str | None] = {}
-                resp = requests.post(
-                    ask_url,
-                    headers=headers,
-                    data=json.dumps({"question": question}),
-                    stream=True,
-                    timeout=60,
-                )
-                _sync_usage_from_headers(resp)
-                stream_lines = []
-                events = []
-                for line in resp.iter_lines():
-                    if not line:
-                        continue
-                    try:
-                        parsed = json.loads(line.decode("utf-8"))
-                    except Exception:
-                        parsed = line
-                    stream_lines.append(parsed)
-                    if isinstance(parsed, dict) and parsed.get("type") == "partial":
-                        model = parsed.get("model")
-                        if model:
-                            answers_acc[model] = parsed.get("answer")
-                            sources_acc[model] = parsed.get("source")
-                            events.append(
-                                {
-                                    "model": model,
-                                    "answer": parsed.get("answer"),
-                                    "source": parsed.get("source"),
-                                    "status": parsed.get("status"),
-                                }
-                            )
-                # 스트림 완료 후 summary 저장
-                summary = None
-                for item in stream_lines[::-1]:
-                    if isinstance(item, dict) and item.get("type") == "summary":
-                        summary = item
-                        break
-                if summary:
-                    result = summary.get("result") or {}
-                    answers_acc = result.get("answers") or answers_acc
-                    sources_acc = result.get("sources") or sources_acc
-                st.session_state["chat_log"].append(
-                    {"question": question, "answers": answers_acc, "sources": sources_acc, "events": events}
-                )
-
-                # 응답 완료 후 남은 횟수 갱신
-                if resp.status_code == 429:
-                    st.session_state["usage_remaining"] = 0
-                elif resp.ok and not st.session_state.get("use_admin_bypass"):
-                    # 서버가 헤더로 내려준 값을 우선 사용하고, 없으면 클라이언트 감소
-                    if "X-Usage-Remaining" not in resp.headers:
-                        new_value = max(0, st.session_state.get("usage_remaining", _usage_limit_int()) - 1)
-                        st.session_state["usage_remaining"] = new_value
-                st.rerun()
+                _send_question(question, ask_url, headers, turn_value, history_payload)
             except Exception as exc:  # pragma: no cover - UI 예외
                 st.error(f"요청 실패: {exc}")
 

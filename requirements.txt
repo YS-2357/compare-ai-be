@@ -1,9 +1,5 @@
 # Minimal API Testing Requirements
 
-# Build essentials first
-wheel==0.43.0
-numpy==1.26.4  # for kiwipiepy build
-
 # Core LangGraph and LangChain
 langgraph==1.0.4
 langchain-core==1.1.0

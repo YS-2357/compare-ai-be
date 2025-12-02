@@ -8,9 +8,10 @@ from typing import Any, AsyncIterator
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
+from app.config import get_settings
 from app.logger import get_logger
 
-from .llm_registry import ChatOpenAI, create_uuid
+from .llm_registry import create_uuid
 from .nodes import (
     DEFAULT_MAX_TURNS,
     NODE_CONFIG,
@@ -30,6 +31,7 @@ from .nodes import (
 )
 
 logger = get_logger(__name__)
+settings_cache = get_settings()
 
 
 def build_workflow():
@@ -76,44 +78,6 @@ def get_app():
     return _app
 
 
-async def _summarize_history(history: list[dict[str, str]] | None, limit: int = 400) -> str | None:
-    """과거 대화 이력을 2문장 이내로 요약한다."""
-
-    if not history:
-        return None
-
-    text_lines = [f"{item.get('role')}: {item.get('content')}" for item in history if item.get("content")]
-    history_text = "\n".join(text_lines)
-    prompt = (
-        "다음 대화 이력을 2문장 이하, 400자 이내로 요약하세요. 핵심 논점만 남기고 세부사항은 생략합니다.\n\n"
-        f"{history_text}"
-    )
-    llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
-    try:
-        response = await _ainvoke(llm, prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return str(content)[:limit]
-    except Exception as exc:  # pragma: no cover - 요약 실패 시 안전 폴백
-        logger.warning("대화 요약 실패, 원본을 절단해 사용합니다: %s", exc)
-        compact = " ".join(history_text.split())
-        return compact[:limit]
-
-
-def _build_current_inputs(question: str, active_models: list[str]) -> dict[str, str]:
-    """현 턴에서 사용할 모델별 입력 프롬프트를 생성한다."""
-
-    prompts: dict[str, str] = {}
-    for node_name in active_models:
-        label = NODE_CONFIG[node_name]["label"]
-        sections = [question]
-        sections.append(
-            "사용자 질문에 최신 답변을 제시하세요. 필요하면 이전 맥락을 반영하세요."
-        )
-        sections.append("응답은 5문장 이하, 600자 이내로 간결하게 작성하세요.")
-        prompts[label] = "\n\n".join([part for part in sections if part])
-    return prompts
-
-
 def _normalize_messages(messages: list | None) -> list[dict[str, str]]:
     """Streamlit 표시를 위해 메시지를 표준화한다."""
 
@@ -127,21 +91,6 @@ def _normalize_messages(messages: list | None) -> list[dict[str, str]]:
     return normalized
 
 
-def _extend_unique_messages(
-    target: list[dict[str, str]], new_messages: list[dict[str, str]] | None, seen: set[tuple[str, str]]
-) -> None:
-    """중복 없이 메시지를 추가한다."""
-
-    for message in new_messages or []:
-        role = str(message.get("role"))
-        content = str(message.get("content"))
-        key = (role, content)
-        if key in seen:
-            continue
-        seen.add(key)
-        target.append({"role": role, "content": content})
-
-
 async def stream_graph(
     question: str, *, turn: int = 1, max_turns: int | None = None, history: list[dict[str, str]] | None = None
 ) -> AsyncIterator[dict[str, Any]]:
@@ -150,7 +99,7 @@ async def stream_graph(
     if not question or not question.strip():
         raise ValueError("질문을 입력해주세요.")
 
-    resolved_max_turns = max_turns or DEFAULT_MAX_TURNS
+    resolved_max_turns = max_turns or settings_cache.max_turns_default
     if turn > resolved_max_turns:
         warning = f"최대 턴({resolved_max_turns})을 초과했습니다. 새 질문으로 시작해주세요."
         logger.warning("턴 초과 - 실행 중단: turn=%s, max=%s", turn, resolved_max_turns)
@@ -162,16 +111,29 @@ async def stream_graph(
     app = get_app()
     start_time = time.perf_counter()
     active_models = list(NODE_CONFIG.keys())
-    current_inputs = _build_current_inputs(base_question, active_models)
-    conversation_history = list(history or [])
-    conversation_history.append({"role": "user", "content": base_question})
+    # 히스토리 → LangGraph 상태용 메시지로 변환
+    user_messages = []
+    model_messages: dict[str, list] = {}
+    for item in history or []:
+        role = item.get("role", "user")
+        content = item.get("content", "")
+        model_label = item.get("model")
+        if not content:
+            continue
+        if role == "assistant" and model_label:
+            msgs = model_messages.get(model_label, [])
+            msgs.append((role, content))
+            model_messages[model_label] = msgs
+        else:
+            user_messages.append((role, content))
+    user_messages.append(("user", base_question))
     state_inputs: GraphState = {
-        "question": base_question,
         "max_turns": resolved_max_turns,
         "turn": turn,
-        "conversation_history": conversation_history,
-        "current_inputs": current_inputs,
         "active_models": active_models,
+        "user_messages": user_messages,
+        "model_messages": model_messages,
+        "model_summaries": {},
     }
 
     config = RunnableConfig(recursion_limit=20, configurable={"thread_id": str(create_uuid())})
@@ -186,13 +148,27 @@ async def stream_graph(
                 meta = NODE_CONFIG[node_name]
                 logger.debug("이벤트 수신: %s (turn=%s)", meta["label"], turn_index)
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                model_label = meta["label"]
+                model_msgs = (state.get("model_messages") or {}).get(model_label, [])
+                # 마지막 assistant 발화를 answer로 사용
+                answer = None
+                for msg in reversed(model_msgs):
+                    if isinstance(msg, (list, tuple)) and len(msg) == 2 and msg[0] == "assistant":
+                        answer = msg[1]
+                        break
+                    if isinstance(msg, dict) and msg.get("role") == "assistant":
+                        answer = msg.get("content")
+                        break
+                if answer is None:
+                    answer = (state.get("raw_responses") or {}).get(model_label)
+                api_status = (state.get("api_status") or {}).get(model_label) or {}
                 yield {
-                    "model": meta["label"],
+                    "model": model_label,
                     "node": node_name,
-                    "answer": state.get(meta["answer_key"]),
-                    "status": state.get(meta["status_key"]) or {},
-                    "source": (state.get("raw_sources") or {}).get(meta["label"]),
-                    "messages": _normalize_messages(state.get("messages")),
+                    "answer": answer,
+                    "status": api_status,
+                    "source": (state.get("raw_sources") or {}).get(model_label),
+                    "messages": _normalize_messages(model_msgs),
                     "type": "partial",
                     "turn": turn_index,
                     "elapsed_ms": elapsed_ms,

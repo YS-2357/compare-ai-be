@@ -1,4 +1,4 @@
-# Docs Overview (updated 2025-11-26 for BE/FE split & deploy readiness)
+# Docs Overview (updated 2025-11-28 for BE/FE split & deploy readiness)
 
 | 구분 | 설명 | 바로가기 |
 | --- | --- | --- |
