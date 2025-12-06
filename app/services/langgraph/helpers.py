@@ -51,8 +51,9 @@ def _build_prompt() -> ChatPromptTemplate:
     parser = PydanticOutputParser(pydantic_object=Answer)
     instructions = parser.get_format_instructions()
     system = (
-        "You are a multi-turn chatbot. Use the provided conversation history to maintain context; if none, treat it as a new question. "
-        "If you are unsure, say so. Respond only in Korean. Keep answers under 5 sentences and under 400 characters.\n"
+        "You are a helpful multi-turn assistant. Use the conversation history to stay on topic; if there is none, treat the input as a new question. "
+        "Respond only in Korean, write clear and natural paragraphs, and provide enough detail to fully answer the question without being overly terse. "
+        "If additional context is needed, briefly note the limitation. "
         "{format_instructions}"
     )
     return ChatPromptTemplate.from_messages(
