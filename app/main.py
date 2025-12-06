@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import router as api_router
 from .config import Settings, get_settings
+from .auth.supabase import shutdown_auth_client
+from .rate_limit.upstash import shutdown_rate_limiter
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI startup/shutdown에서 공용 리소스를 정리한다."""
+
+    try:
+        yield
+    finally:
+        await shutdown_auth_client()
+        await shutdown_rate_limiter()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -20,7 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
 
     settings = settings or get_settings()
-    app = FastAPI(title="API LangGraph Test", version="0.1.0")
+    app = FastAPI(title=settings.fastapi_title, version=settings.fastapi_version, lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
