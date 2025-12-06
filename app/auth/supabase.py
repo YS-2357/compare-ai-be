@@ -25,13 +25,20 @@ class AuthenticatedUser(TypedDict):
 class _JWKSCache:
     """Supabase JWKS를 주기적으로 캐시한다."""
 
-    def __init__(self, jwks_url: str, cache_ttl: int = 300, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        jwks_url: str,
+        cache_ttl: int = 300,
+        api_key: str | None = None,
+        http_timeout: float = 5.0,
+    ) -> None:
         self.jwks_url = jwks_url
         self.cache_ttl = cache_ttl
         self.api_key = api_key
         self._keys: dict[str, dict[str, Any]] | None = None
         self._expires_at: float = 0.0
         self._lock = asyncio.Lock()
+        self._http_timeout = http_timeout
 
     async def get_key(self, kid: str) -> dict[str, Any]:
         async with self._lock:
@@ -55,7 +62,7 @@ class _JWKSCache:
             urls.append(f"{root}/keys")
             urls.append(f"{root}/tenants/default/jwks")
             urls.append(f"{root}/.well-known/jwks.json")
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             last_error: Exception | None = None
             for url in urls:
                 try:
@@ -125,17 +132,23 @@ def get_verifier() -> SupabaseVerifier:
         jwks_url = settings.supabase_url.rstrip("/") + "/auth/v1/jwks"
     issuer = (settings.supabase_url or "").rstrip("/") + "/auth/v1"
     api_key = settings.supabase_anon_key or settings.supabase_service_role_key
-    _verifier = SupabaseVerifier(_JWKSCache(jwks_url, api_key=api_key), audience=settings.supabase_aud, issuer=issuer)
+    jwks_cache = _JWKSCache(
+        jwks_url,
+        cache_ttl=settings.supabase_jwks_cache_ttl,
+        api_key=api_key,
+        http_timeout=settings.supabase_http_timeout,
+    )
+    _verifier = SupabaseVerifier(jwks_cache, audience=settings.supabase_aud, issuer=issuer)
     return _verifier
 
 
 class SupabaseAuthClient:
     """Supabase Auth REST 호출 래퍼."""
 
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(self, base_url: str, api_key: str, timeout: float = 5.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self._client = httpx.AsyncClient(timeout=5)
+        self._client = httpx.AsyncClient(timeout=timeout)
 
     def _headers(self) -> dict[str, str]:
         return {"apikey": self.api_key, "Authorization": f"Bearer {self.api_key}"}
@@ -162,6 +175,11 @@ class SupabaseAuthClient:
             detail = exc.response.json() if exc.response else {"message": str(exc)}
             raise HTTPException(status_code=exc.response.status_code if exc.response else 400, detail=detail)
 
+    async def aclose(self) -> None:
+        """재사용 중인 HTTP 클라이언트를 종료한다."""
+
+        await self._client.aclose()
+
 
 def get_auth_client() -> "SupabaseAuthClient":
     """회원가입/로그인을 위한 Supabase Auth 클라이언트를 반환한다."""
@@ -173,5 +191,21 @@ def get_auth_client() -> "SupabaseAuthClient":
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_anon_key:
         raise RuntimeError("Supabase Auth 설정이 없습니다.")
-    _auth_client = SupabaseAuthClient(settings.supabase_url, settings.supabase_anon_key)
+    _auth_client = SupabaseAuthClient(
+        settings.supabase_url,
+        settings.supabase_anon_key,
+        timeout=settings.supabase_http_timeout,
+    )
     return _auth_client
+
+
+async def shutdown_auth_client() -> None:
+    """FastAPI lifespan에서 Auth 클라이언트를 정리한다."""
+
+    global _auth_client
+    if _auth_client is None:
+        return
+    try:
+        await _auth_client.aclose()
+    finally:
+        _auth_client = None
