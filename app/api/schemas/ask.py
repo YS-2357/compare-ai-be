@@ -12,7 +12,7 @@ class AskRequest(BaseModel):
     turn: int | None = None
     max_turns: int | None = None
     history: list[dict[str, str]] | None = None
+    models: dict[str, str] | None = None
 
 
 __all__ = ["AskRequest"]
-
