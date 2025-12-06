@@ -61,7 +61,7 @@ UPSTASH_REDIS_URL=...
 UPSTASH_REDIS_TOKEN=...
 DAILY_USAGE_LIMIT=3
 
-# 관리자 우회 토큰 (인증/레이트리밋 무시)
+# 관리자 계정 (인증/레이트리밋 무시)
 ADMIN_BYPASS_TOKEN=choose-a-strong-token
 ```
 
@@ -122,7 +122,8 @@ api-test/
 ### 4. Frontend (별도 레포 `compare-ai-fe`)
 - Supabase Auth로 로그인/회원가입 후 JWT 획득
 - JWT를 `Authorization: Bearer <token>` 헤더에 담아 이 백엔드 `/api/ask` 호출
-- 관리자 우회 시 `x-admin-bypass: <ADMIN_BYPASS_TOKEN>` 헤더 사용
+- `.env`에 `ADMIN_EMAIL=youngsunx20@gmail.com`처럼 지정한 이메일로 로그인하면 `/usage` 응답의 `remaining`이 `null`이 되며 일일 제한 없이 사용할 수 있다.
+- Streamlit UI(로컬 실행 기준)에서는 사이드바에서 OpenAI/Gemini/Claude 등 각 LLM의 모델을 선택할 수 있으며, 선택값은 API 요청 시 `models` 필드로 전달되어 LangGraph 실행에 반영된다.
 
 ## 🔗 API 엔드포인트
 
@@ -135,7 +136,7 @@ GET /health
 ```bash
 GET /usage
 ```
-JWT 필요. 관리자 우회 토큰 계정이면 `remaining`이 `null`로 내려가며 제한 없이 사용.
+JWT 필요. `ADMIN_EMAIL`로 지정된 계정이면 `remaining`이 `null`로 내려가며 제한 없이 사용.
 
 ### 질문 처리
 ```bash
@@ -143,7 +144,11 @@ POST /api/ask
 Content-Type: application/json
 
 {
-  "question": "당신의 질문을 입력하세요"
+  "question": "당신의 질문을 입력하세요",
+  "models": {
+    "openai": "gpt-4o-nano",
+    "gemini": "gemini-2.0-flash"
+  }
 }
 ```
 
