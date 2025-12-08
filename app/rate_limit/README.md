@@ -1,16 +1,15 @@
 ﻿# app/rate_limit/
 
-> Last update: 2025-12-05 · Upstash client timeout + graceful shutdown
+> 최종 업데이트: 2025-12-05 · Upstash 타임아웃 + 종료 훅
 
-- Upstash Redis based daily usage limiter.
-- upstash.py: async client (INCR + EXPIRE pipeline) with configurable HTTP timeout and shutdown hook.
-- dependencies.py: enforce_daily_limit (propagates HTTP errors, logs backend failures).
+- Upstash Redis 기반 일일 사용량 제한기.
+- `upstash.py`: HTTP 타임아웃 설정 및 종료 훅을 가진 비동기 클라이언트(INCR + EXPIRE).
+- `dependencies.py`: `enforce_daily_limit`로 호출 전 한도 검사(백엔드 장애는 HTTP 오류로 전파).
 
-Environment:
-- UPSTASH_REDIS_URL / UPSTASH_REDIS_TOKEN`r
-- DAILY_USAGE_LIMIT (default 3)
-- UPSTASH_HTTP_TIMEOUT (seconds, default 5)
+환경 변수:
+- `UPSTASH_REDIS_URL` / `UPSTASH_REDIS_TOKEN`
+- `DAILY_USAGE_LIMIT` (기본 3)
+- `UPSTASH_HTTP_TIMEOUT` (초 단위, 기본 5)
 
-Notes:
-- When Upstash is reachable, counters are stored remotely; otherwise FastAPI returns 503 to surface backend issues.
-
+비고:
+- Upstash 연결 가능 시 카운터는 원격에 저장되며, 장애 시 FastAPI가 503으로 백엔드 이슈를 노출합니다.

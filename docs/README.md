@@ -1,11 +1,11 @@
-﻿# Docs Overview (updated 2025-12-05 for model overrides / admin bypass)
+﻿# 문서 개요 (업데이트: 2025-12-08, FastAPI `/docs` 반영)
 
-| Category | Description | Link |
+| 구분 | 설명 | 링크 |
 | --- | --- | --- |
-| Changelog | Date-wise change log | [changelog/README.md](changelog/README.md) |
-| Dev Log | Daily progress notes | [development/README.md](development/README.md) |
-| Roadmap | Mid-term priorities | [development/roadmap-2025.md](development/roadmap-2025.md) |
+| Changelog | 날짜별 변경 로그 | [changelog/README.md](changelog/README.md) |
+| Dev Log | 개발 일지 | [development/README.md](development/README.md) |
+| Roadmap | 중기 계획 | [development/roadmap-2025.md](development/roadmap-2025.md) |
 
 ## Quick Links
-- Latest changelog: [2025-12-06](changelog/2025-12-06.md)
-- Latest dev log: [2025-12-06](development/2025-12-06.md)
+- 최신 changelog: [2025-12-08](changelog/2025-12-08.md)
+- 최신 dev log: [2025-12-08](development/2025-12-08.md)

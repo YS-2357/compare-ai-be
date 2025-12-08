@@ -36,16 +36,37 @@ async def health():
     return {"status": "ok"}
 
 
-@router.post("/api/ask")
+@router.post(
+    "/api/ask",
+    responses={
+        200: {
+            "description": "NDJSON 스트림 (partial/summary) 반환",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "partial",
+                        "model": "OpenAI",
+                        "answer": "...",
+                        "status": {"status": 200, "detail": "stop"},
+                        "elapsed_ms": 1234,
+                    }
+                }
+            },
+        },
+        401: {"description": "인증 필요 (Authorization: Bearer <JWT>)"},
+        503: {"description": "레이트리밋 백엔드 오류"},
+    },
+    summary="LangGraph 스트리밍 질의 (NDJSON)",
+)
 async def ask_question(payload: AskRequest, user: AuthenticatedUser = Depends(get_current_user)):
-    """LangGraph 워크플로우를 스트림 형태로 실행한다.
+    """LangGraph 워크플로우를 NDJSON 스트림으로 실행한다.
 
     Args:
-        payload: 질문 문자열을 담은 요청 본문.
+        payload: 질문 문자열 및 모델/히스토리 옵션을 담은 요청 본문.
         user: 인증된 사용자 정보.
 
     Returns:
-        StreamingResponse: partial/summary 이벤트가 줄 단위 JSON으로 전달되는 스트림 응답.
+        StreamingResponse: partial/summary 이벤트를 줄 단위 JSON으로 전달하는 스트림 응답.
     """
 
     settings = get_settings()

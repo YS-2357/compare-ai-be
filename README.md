@@ -1,22 +1,22 @@
-# Compare-AI (Backend)
+# Compare-AI (FastAPI + Streamlit 단일 레포)
 
-FastAPI 기반 멀티 LLM 비교 API (프런트는 별도 레포 `compare-ai-fe`)  
-> **최종 업데이트: 2025-12-03** — 스트리밍 순차 표시(모델별), 프롬프트 영어화/응답은 한국어, Upstash 필수 + `/usage` 조회, 기본 모델 gpt-4o-mini
+FastAPI 백엔드와 Streamlit UI가 한 레포(`compare-ai`)에 함께 있으며, 단일 커맨드로 로컬 실행합니다.  
+> **최종 업데이트: 2025-12-08** — FastAPI `/docs` 예시/설명 보강, 모델 오버라이드/관리자 우회 문서화, Render 단일 레포 배포
 
 ## 📋 프로젝트 개요
 
-5개의 주요 LLM API(OpenAI, Google Gemini, Anthropic Claude, Upstage Solar, Perplexity)를 병렬로 호출하여 동일한 질문에 대한 각 모델의 응답을 비교할 수 있는 웹 애플리케이션입니다.
+5개 이상 주요 LLM API(OpenAI, Google Gemini, Anthropic Claude, Upstage Solar, Perplexity 등)를 병렬 호출해 질문별 응답을 비교합니다. 로컬 실행 시 FastAPI와 Streamlit을 동시에 띄우며, Render 배포 시 동일 레포를 사용해 BE/FE 서비스를 각각 구성합니다(명령만 다름).
 
 ## 🏗️ 아키텍처
 
-- **Backend**: FastAPI (Python 3.11+)
-- **Frontend**: 별도 레포 `compare-ai-fe`(예: Next.js + Supabase Auth)
+- **백엔드**: FastAPI (Python 3.11+), LangGraph 기반 스트리밍
+- **프런트(UI)**: Streamlit (같은 레포 `app/ui/streamlit_app.py`)
 - **워크플로우**: LangGraph (병렬 실행)
 - **추적/로깅**: LangSmith
-- **레이트리밋**: Upstash Redis(필수), 일일 호출 제한 조회/차단
-- **배포**: Render/Vercel 등 서버리스·컨테이너, HTTPS 기본 (배포 편의를 위해 의존성/파이썬 버전 고정)
+- **레이트리밋**: Upstash Redis(필수), `/usage` 조회/차단
+- **배포**: Render (동일 레포에서 FastAPI/Streamlit 서비스를 각각 실행)
 
-## 🚀 빠른 시작 (백엔드)
+## 🚀 빠른 시작 (단일 커맨드)
 
 ### 1. 환경 설정
 
@@ -65,19 +65,20 @@ DAILY_USAGE_LIMIT=3
 ADMIN_BYPASS_TOKEN=choose-a-strong-token
 ```
 
-### 3. 실행
+### 3. 실행 (FastAPI + Streamlit 동시)
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+python main.py
 ```
 
 서버가 시작되면:
-- **FastAPI**: http://127.0.0.1:8000 (클라우드에서는 제공 도메인 사용)
+- **FastAPI**: http://127.0.0.1:8000 (`APP_MODE=api`로 설정하면 FastAPI만 단독 실행)
+- **Streamlit**: http://127.0.0.1:8501
 
 ## 📁 프로젝트 구조
 
 ```
-api-test/
+compare-ai/
 ├── app/
 │   ├── config.py                  # Pydantic Settings (환경변수 관리)
 │   ├── main.py                    # FastAPI 앱 팩토리
@@ -89,9 +90,9 @@ api-test/
 │   ├── auth/                      # Supabase 검증/클라이언트
 │   ├── rate_limit/                # Upstash 클라이언트/Depends
 │   ├── services/langgraph/        # LangGraph 워크플로우 분할
-│   └── ui/                        # Streamlit 로컬 UI (개발용)
-├── scripts/run_app.py             # FastAPI+Streamlit 실행 스크립트
-├── main.py                        # scripts/run_app.py 래퍼(또는 APP_MODE=api)
+│   └── ui/                        # Streamlit UI
+├── scripts/run_app.py             # FastAPI+Streamlit 실행 스크립트 (main.py에서 호출)
+├── main.py                        # APP_MODE에 따라 api만 또는 둘 다 실행
 ├── notebooks/
 │   └── api_langgraph_test.ipynb
 ├── docs/
@@ -119,11 +120,10 @@ api-test/
 - 프로젝트: `API-LangGraph-Test`
 - 토큰 사용량, 응답 시간, 에러 로그 추적
 
-### 4. Frontend (별도 레포 `compare-ai-fe`)
-- Supabase Auth로 로그인/회원가입 후 JWT 획득
-- JWT를 `Authorization: Bearer <token>` 헤더에 담아 이 백엔드 `/api/ask` 호출
-- `.env`에 `ADMIN_EMAIL=youngsunx20@gmail.com`처럼 지정한 이메일로 로그인하면 `/usage` 응답의 `remaining`이 `null`이 되며 일일 제한 없이 사용할 수 있다.
-- Streamlit UI(로컬 실행 기준)에서는 사이드바에서 OpenAI/Gemini/Claude 등 각 LLM의 모델을 선택할 수 있으며, 선택값은 API 요청 시 `models` 필드로 전달되어 LangGraph 실행에 반영된다.
+### 4. Frontend (동일 레포 Streamlit)
+- Streamlit UI 사이드바에서 모델 선택 → `models` 필드로 API에 전달되어 LangGraph에 반영
+- Supabase Auth JWT를 `Authorization: Bearer <token>`으로 FastAPI에 전달
+- 관리자 이메일(`ADMIN_EMAIL`) 로그인 시 `/usage` 응답 `remaining = null`로 우회 적용
 
 ## 🔗 API 엔드포인트
 
@@ -170,35 +170,10 @@ Content-Type: application/json
 - `X-Usage-Limit`: 일일 한도 (`DAILY_USAGE_LIMIT`, 기본 3)
 - `X-Usage-Remaining`: 이번 호출 기준 남은 횟수 (Upstash 장애 시 503/429 반환, 폴백 없음)
 
-## 📝 변경 이력
+## 📝 참고
 
-상세한 날짜별 변경 이력은 [`docs/changelog/`](docs/changelog/) 디렉토리를 참조하세요.
-
-## 🛠️ 개발 가이드
-
-### 노트북 기준 개발
-- `notebooks/api_langgraph_test.ipynb`가 기준 구현
-- 노트북에서 검증된 코드만 프로덕션 코드로 이식
-- LangSmith 로깅 설정은 노트북 기준 유지
-
-### 코드 수정 시 주의사항
-1. 노트북 파일은 수정하지 않음 (기준 유지)
-2. 모델명은 노트북과 동일하게 유지
-3. LangSmith 프로젝트명: `API-LangGraph-Test`
-4. UUID v7 사용 (LangSmith 권장)
-
-## ⚠️ 알려진 이슈
-
-### 1. 응답 시간
-- 5개 LLM을 병렬로 호출하므로 1~2분 소요
-- 프런트엔드에서 스트리밍 응답을 받을 때 타임아웃을 충분히 길게 설정하세요.
-
-### 2. 패키지 호환성
-- `numpy` 버전 충돌 가능 → 가상환경 사용 필수
-- `langchain-upstage`의 의존성 버전 주의
-
-### 3. 사용량 표시 버그 (UI)
-- Streamlit UI에서 재로그인 직후 남은 횟수가 항상 3으로 보일 수 있습니다(실제 서버 제한은 Upstash/캐시에 따라 정상 적용). `/api/ask` 호출 후 내려오는 헤더/summary 값으로 즉시 동기화하는 패치를 예정 중입니다.
+- 변경 이력과 최신 이슈/해결 현황: `docs/changelog/`, `docs/development/`
+- 실시간 동작/스키마: FastAPI `/docs`(Swagger)와 코드 주석을 우선 확인
 
 ## 📄 라이선스
 

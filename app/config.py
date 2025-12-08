@@ -26,7 +26,7 @@ class Settings:
     max_context_messages: int = 10  # 최근 메시지 유지 개수 (약 5턴: user/assistant 합산)
 
     env: Literal["local", "test", "prod"] = "local"
-    fastapi_title: str = "API LangGraph Test"
+    fastapi_title: str = "Compare-AI Backend API"
     fastapi_version: str = "0.1.0"
     langsmith_project: str = "Compare-AI-BE"
     supabase_url: str | None = None
