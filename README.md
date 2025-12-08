@@ -104,7 +104,7 @@ compare-ai/
 ## 🔧 주요 기능
 
 ### 1. 멀티 LLM 병렬 호출
-- OpenAI GPT-5-nano
+- OpenAI GPT-4o-mini
 - Google Gemini 2.5 Flash Lite
 - Anthropic Claude Haiku 4.5
 - Upstage Solar Mini
@@ -146,7 +146,7 @@ Content-Type: application/json
 {
   "question": "당신의 질문을 입력하세요",
   "models": {
-    "openai": "gpt-4o-nano",
+    "openai": "gpt-4o-mini",
     "gemini": "gemini-2.0-flash"
   }
 }
